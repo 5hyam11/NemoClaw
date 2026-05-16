@@ -48,27 +48,31 @@ If video files are missing, placeholders show the expected path under each panel
 
 ## Replace videos
 
-Clips are served from `public/videos/`. Vite exposes anything in `public/` at the site root, so `public/videos/foo.mp4` is available as `/videos/foo.mp4`.
+Clips are served from `public/videos/`. Vite exposes anything in `public/` at the site root, so `public/videos/foo.avi` is available as `/videos/foo.avi`.
+
+The UI expects **AVI** files by default (typical pipeline output). You can point `VIDEO_ASSETS` at `.mp4` or other extensions if you change the paths in `App.jsx`.
 
 ### 1. Add or replace files (easiest)
 
-Create the folder if needed, then drop in MP4s with **these exact names**:
+Create the folder if needed, then copy your AVIs with **these exact names**:
 
 | File | Panel | What it should be |
 |------|--------|-------------------|
-| `waymo_input.mp4` | 01 — Waymo input | Clean baseline Waymo clip (same clip every run) |
-| `cosmos_geometry.mp4` | 02 — Cosmos geometry | Same clip with bounding boxes burned in |
-| `helios_flood.mp4` | 03 — Helios flood render | Flood weather on that scene (rain, standing water, spray) |
-| `result_untrained_storm.mp4` | 04 — Before | Glitchy / lost boxes in the storm (untrained) |
-| `result_trained_storm.mp4` | 04 — After | Stable boxes through the flood (DreamLoop-trained) |
+| `waymo_input.avi` | 01 — Waymo input | Clean baseline Waymo clip (same clip every run) |
+| `cosmos_geometry.avi` | 02 — Cosmos geometry | Same clip with bounding boxes burned in |
+| `helios_flood.avi` | 03 — Helios flood render | Flood weather on that scene (rain, standing water, spray) |
+| `result_untrained_storm.avi` | 04 — Before | Glitchy / lost boxes in the storm (untrained) |
+| `result_trained_storm.avi` | 04 — After | Stable boxes through the flood (DreamLoop-trained) |
 
 Optional later:
 
 | File | Purpose |
 |------|---------|
-| `pedestrian_example.mp4` | Second scenario (not wired in the UI yet; path reserved in `App.jsx`) |
+| `pedestrian_example.avi` | Second scenario (not wired in the UI yet; path reserved in `App.jsx`) |
 
 **No rebuild required** — save the file, refresh the browser. While **RUN** is active, videos loop with `autoPlay` (muted).
+
+If your files use different names, either rename them to match the table or update `VIDEO_ASSETS` in `src/App.jsx` (see below).
 
 ### 2. Use different filenames
 
@@ -76,20 +80,35 @@ Edit `VIDEO_ASSETS` at the top of `src/App.jsx`:
 
 ```js
 const VIDEO_ASSETS = {
-  waymo: "/videos/your_waymo_clip.mp4",
-  cosmos: "/videos/your_cosmos_clip.mp4",
-  helios: "/videos/your_helios_clip.mp4",
-  resultUntrained: "/videos/your_untrained_result.mp4",
-  resultTrained: "/videos/your_trained_result.mp4",
-  pedestrian: "/videos/pedestrian_example.mp4",
+  waymo: "/videos/your_waymo_clip.avi",
+  cosmos: "/videos/your_cosmos_clip.avi",
+  helios: "/videos/your_helios_clip.avi",
+  resultUntrained: "/videos/your_untrained_result.avi",
+  resultTrained: "/videos/your_trained_result.avi",
+  pedestrian: "/videos/pedestrian_example.avi",
 };
 ```
 
 Paths must start with `/videos/` if files live under `public/videos/`.
 
+### 3. If a clip does not play in the browser
+
+HTML `<video>` support for AVI depends on the codec inside the file (often fine on Chrome/Edge for MJPEG or some H.264 AVIs; less reliable on Safari).
+
+If a panel stays on the placeholder after refresh:
+
+1. Open DevTools → **Network** and confirm the `.avi` returns **200** (file path/name correct).
+2. Try the same clip in the browser address bar: `http://localhost:5173/videos/waymo_input.avi`.
+3. Re-encode to MP4 for the demo (keeps quality, works everywhere), then either replace the file or update paths:
+
+```bash
+ffmpeg -i waymo_input.avi -c:v libx264 -crf 23 -an waymo_input.mp4
+```
+
+Then set e.g. `waymo: "/videos/waymo_input.mp4"` in `VIDEO_ASSETS`.
+
 ### Tips
 
-- Prefer **H.264 MP4** for broad browser support.
 - Keep clips **short and loop-friendly**; the UI sets `loop` on all `<video>` elements.
 - Panels 1–3 should be the **same underlying scene** at different processing stages; panel 4 compares two perception outputs on the Helios flood footage.
 
@@ -117,7 +136,7 @@ See comments in `App.jsx` or wire a `fetch('/metrics.json')` loop in `useMetrics
 
 ## Fallback demo mode
 
-If upstream video generation is not ready, **RUN** still animates realistic mock numbers. Use that for dry runs; drop real MP4s into `public/videos/` when clips are available.
+If upstream video generation is not ready, **RUN** still animates realistic mock numbers. Use that for dry runs; drop real AVIs into `public/videos/` when clips are available.
 
 ---
 
@@ -126,7 +145,7 @@ If upstream video generation is not ready, **RUN** still animates realistic mock
 ```
 dreamloop-ui/
 ├── public/
-│   └── videos/          ← put MP4s here
+│   └── videos/          ← put AVIs here (or MP4 if you change paths)
 ├── src/
 │   ├── App.jsx          ← panels, metrics, VIDEO_ASSETS paths
 │   └── main.jsx

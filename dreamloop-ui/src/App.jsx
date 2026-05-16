@@ -1,17 +1,35 @@
 import { useState, useEffect, useRef } from "react";
 
+// #region agent log
+const debugLog = (location, message, data, hypothesisId) => {
+  fetch("http://127.0.0.1:7353/ingest/8bcebfee-df1d-41b5-b75b-5399f9e91c98", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "83c992" },
+    body: JSON.stringify({
+      sessionId: "83c992",
+      location,
+      message,
+      data,
+      hypothesisId,
+      timestamp: Date.now(),
+      runId: "pre-fix",
+    }),
+  }).catch(() => {});
+};
+// #endregion
+
 /**
  * Panels 1–3: same flood clip at each pipeline stage (unchanged by top buttons).
  * Panel 4: untrained vs DreamLoop result on that Helios flood scene.
  * Top buttons: simulate vehicle + I2V metrics only (not different source footage).
  */
 const VIDEO_ASSETS = {
-  waymo: "/videos/waymo_input.mp4",
-  cosmos: "/videos/cosmos_geometry.mp4",
-  helios: "/videos/helios_flood.mp4",
-  resultUntrained: "/videos/result_untrained_storm.mp4",
-  resultTrained: "/videos/result_trained_storm.mp4",
-  pedestrian: "/videos/pedestrian_example.mp4",
+  waymo: "/videos/waymo_input.avi",
+  cosmos: "/videos/cosmos_geometry.avi",
+  helios: "/videos/dreamloop_blizzard.avi", // UI prefers .mp4 sibling when present (see srcCandidates)
+  resultUntrained: "/videos/result_untrained_storm.avi",
+  resultTrained: "/videos/result_trained_storm.avi",
+  pedestrian: "/videos/pedestrian_example.avi",
 };
 
 const SCENARIO_MODES = {
@@ -126,6 +144,13 @@ function MetricCard({ label, value, unit, accent }) {
   );
 }
 
+/** Prefer browser-playable MP4 over MJPEG AVI when both exist under public/videos/ */
+function srcCandidates(src) {
+  if (!src) return [];
+  if (/\.avi$/i.test(src)) return [src.replace(/\.avi$/i, ".mp4"), src];
+  return [src];
+}
+
 const BADGE_STYLES = {
   neutral: { bg: "#EEF1F6", color: "#5C6778" },
   pipeline: { bg: "#E8F0FA", color: "#2E6BA8" },
@@ -136,6 +161,64 @@ const BADGE_STYLES = {
 
 function VideoPanel({ title, badge, badgeTone = "neutral", src, caption, footnote, playing }) {
   const badgeStyle = BADGE_STYLES[badgeTone] || BADGE_STYLES.neutral;
+  const [resolvedSrc, setResolvedSrc] = useState(null);
+  const [videoOk, setVideoOk] = useState(false);
+  const [videoError, setVideoError] = useState(false);
+
+  useEffect(() => {
+    setVideoOk(false);
+    setVideoError(false);
+    if (!src) {
+      setResolvedSrc("");
+      return;
+    }
+    let cancelled = false;
+    const candidates = srcCandidates(src);
+
+    (async () => {
+      // #region agent log
+      debugLog("App.jsx:VideoPanel:useEffect", "panel mount src", { src, title, candidates }, "H5");
+      // #endregion
+      let chosen = src;
+      for (const url of candidates) {
+        try {
+          const res = await fetch(url, { method: "HEAD" });
+          // #region agent log
+          debugLog(
+            "App.jsx:VideoPanel:HEAD",
+            "asset HTTP check",
+            {
+              src,
+              url,
+              title,
+              status: res.status,
+              ok: res.ok,
+              contentType: res.headers.get("content-type"),
+              contentLength: res.headers.get("content-length"),
+            },
+            res.ok ? "H2" : "H2"
+          );
+          // #endregion
+          if (res.ok) {
+            chosen = url;
+            break;
+          }
+        } catch (err) {
+          // #region agent log
+          debugLog("App.jsx:VideoPanel:HEAD", "asset fetch failed", { url, title, err: String(err) }, "H2");
+          // #endregion
+        }
+      }
+      if (!cancelled) {
+        // #region agent log
+        debugLog("App.jsx:VideoPanel:resolve", "chosen playable src", { src, chosen, title }, "H4");
+        // #endregion
+        setResolvedSrc(chosen);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [src, title]);
 
   return (
     <div style={{
@@ -177,25 +260,75 @@ function VideoPanel({ title, badge, badgeTone = "neutral", src, caption, footnot
         )}
       </div>
       <div style={{ flex: 1, minHeight: 140, background: "#EEF1F6", position: "relative", overflow: "hidden" }}>
-        <div style={{
-          position: "absolute", inset: 0,
-          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-          padding: 12, textAlign: "center",
-          background: "linear-gradient(135deg, #F4F7FB 0%, #EEF2F8 100%)",
-          zIndex: 0,
-        }}>
-          <div style={{ fontSize: 10, color: "#7A8496", fontFamily: "monospace", marginBottom: 4 }}>{src || "awaiting clip"}</div>
-          <div style={{ fontSize: 10, color: "#9AA5B8", lineHeight: 1.4 }}>{footnote}</div>
-        </div>
-        {src && (
+        {(!videoOk || videoError) && (
+          <div style={{
+            position: "absolute", inset: 0,
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            padding: 12, textAlign: "center",
+            background: "linear-gradient(135deg, #F4F7FB 0%, #EEF2F8 100%)",
+            zIndex: 2,
+          }}>
+            <div style={{ fontSize: 10, color: "#7A8496", fontFamily: "monospace", marginBottom: 4 }}>{resolvedSrc || src || "awaiting clip"}</div>
+            <div style={{ fontSize: 10, color: "#9AA5B8", lineHeight: 1.4 }}>{footnote}</div>
+            {videoError && (
+              <div style={{ fontSize: 10, color: "#D63B3A", marginTop: 8, lineHeight: 1.4, maxWidth: 220 }}>
+                Cannot play {resolvedSrc || src}. Re-encode to H.264 MP4: python scripts/avi_to_mp4.py
+              </div>
+            )}
+          </div>
+        )}
+        {resolvedSrc && (
           <video
-            key={src}
-            src={src}
-            autoPlay={playing}
+            key={resolvedSrc}
+            src={resolvedSrc}
+            autoPlay
             loop
             muted
             playsInline
-            style={{ width: "100%", height: "100%", objectFit: "cover", position: "relative", zIndex: 1, display: "block" }}
+            preload="auto"
+            onLoadedData={(e) => {
+              const v = e.currentTarget;
+              // #region agent log
+              debugLog(
+                "App.jsx:VideoPanel:onLoadedData",
+                "video decoded",
+                { src, resolvedSrc, title, w: v.videoWidth, h: v.videoHeight, duration: v.duration, runId: "post-fix" },
+                "H5"
+              );
+              // #endregion
+              setVideoOk(true);
+              setVideoError(false);
+            }}
+            onError={(e) => {
+              const v = e.currentTarget;
+              const err = v.error;
+              // #region agent log
+              debugLog(
+                "App.jsx:VideoPanel:onError",
+                "video element error",
+                {
+                  src,
+                  resolvedSrc,
+                  title,
+                  code: err?.code,
+                  message: err?.message,
+                  runId: "post-fix",
+                  MEDIA_ERR_ABORTED: 1,
+                  MEDIA_ERR_NETWORK: 2,
+                  MEDIA_ERR_DECODE: 3,
+                  MEDIA_ERR_SRC_NOT_SUPPORTED: 4,
+                },
+                err?.code === 4 ? "H4" : err?.code === 3 ? "H1" : "H1"
+              );
+              // #endregion
+              setVideoOk(false);
+              setVideoError(true);
+            }}
+            style={{
+              width: "100%", height: "100%", objectFit: "cover",
+              position: "relative", zIndex: 1,
+              display: videoOk && !videoError ? "block" : "none",
+            }}
           />
         )}
       </div>
@@ -481,7 +614,7 @@ export default function App() {
           }}>
             <strong style={{ color: "#4A5568" }}>Pipeline (same for both buttons):</strong>{" "}
             Waymo raw → Cosmos bboxes → Helios flood weather → Panel 4 compares perception with vs without DreamLoop training.
-            Optional later: <code style={{ fontSize: 9 }}>public/videos/pedestrian_example.mp4</code>
+            Optional later: <code style={{ fontSize: 9 }}>public/videos/pedestrian_example.avi</code>
           </div>
           */}
 
@@ -492,7 +625,7 @@ export default function App() {
               badgeTone="neutral"
               src={VIDEO_ASSETS.waymo}
               caption="Clean baseline Waymo footage — same clip every time"
-              footnote="public/videos/waymo_input.mp4"
+              footnote="public/videos/waymo_input.avi"
               playing={running}
             />
             <VideoPanel
@@ -501,7 +634,7 @@ export default function App() {
               badgeTone="pipeline"
               src={VIDEO_ASSETS.cosmos}
               caption="Same clip with bounding boxes burned in (Person 2)"
-              footnote="public/videos/cosmos_geometry.mp4"
+              footnote="public/videos/cosmos_geometry.avi"
               playing={running}
             />
             <VideoPanel
@@ -510,7 +643,7 @@ export default function App() {
               badgeTone="flood"
               src={VIDEO_ASSETS.helios}
               caption="Rain, standing water, spray on top of Cosmos geometry"
-              footnote="public/videos/helios_flood.mp4"
+              footnote="public/videos/dreamloop_blizzard.mp4 (or .avi)"
               playing={running}
             />
             <ResultComparePanel scenario={scenario} playing={running} />
