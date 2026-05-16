@@ -1,5 +1,40 @@
 import { useState, useEffect, useRef } from "react";
 
+/**
+ * Panels 1–3: same flood clip at each pipeline stage (unchanged by top buttons).
+ * Panel 4: untrained vs DreamLoop result on that Helios flood scene.
+ * Top buttons: simulate vehicle + I2V metrics only (not different source footage).
+ */
+const VIDEO_ASSETS = {
+  waymo: "/videos/waymo_input.mp4",
+  cosmos: "/videos/cosmos_geometry.mp4",
+  helios: "/videos/helios_flood.mp4",
+  resultUntrained: "/videos/result_untrained_storm.mp4",
+  resultTrained: "/videos/result_trained_storm.mp4",
+  pedestrian: "/videos/pedestrian_example.mp4",
+};
+
+const SCENARIO_MODES = {
+  baseline: {
+    buttonLabel: "No I2V",
+    headline: "Flood — unprotected",
+    description: "No roadside beacon · AV holds speed · collision risk rises",
+    panel4Caption: "Untrained model — boxes flicker and lose vehicles in the storm",
+    resultSrc: VIDEO_ASSETS.resultUntrained,
+    resultBadge: "FAILING IN STORM",
+    resultTone: "fail",
+  },
+  i2v: {
+    buttonLabel: "I2V intervention",
+    headline: "Flood — I2V protected",
+    description: "V2X beacon warns AV · slows before standing water · risk stays low",
+    panel4Caption: "DreamLoop-trained — tight boxes through rain and standing water",
+    resultSrc: VIDEO_ASSETS.resultTrained,
+    resultBadge: "TRACKING IN STORM",
+    resultTone: "success",
+  },
+};
+
 const MOCK_SCENARIOS = {
   baseline: [
     { speed: 65, friction: 0.82, risk: 12, infra: "NOMINAL", label: "Approaching zone" },
@@ -51,14 +86,14 @@ function useMetrics(scenario, running) {
 
 function RiskBar({ value }) {
   const color =
-    value > 70 ? "#E24B4A" : value > 40 ? "#EF9F27" : "#1D9E75";
+    value > 70 ? "#D63B3A" : value > 40 ? "#D48806" : "#168F66";
   return (
     <div style={{ marginTop: 6 }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-        <span style={{ fontSize: 11, color: "#888", letterSpacing: "0.08em", textTransform: "uppercase" }}>Collision Risk</span>
+        <span style={{ fontSize: 11, color: "#7A8496", letterSpacing: "0.08em", textTransform: "uppercase" }}>Collision Risk</span>
         <span style={{ fontSize: 13, fontWeight: 600, color }}>{value}%</span>
       </div>
-      <div style={{ height: 6, background: "#1a1f2e", borderRadius: 3, overflow: "hidden" }}>
+      <div style={{ height: 6, background: "#E8EDF4", borderRadius: 3, overflow: "hidden" }}>
         <div
           style={{
             height: "100%",
@@ -76,83 +111,189 @@ function RiskBar({ value }) {
 function MetricCard({ label, value, unit, accent }) {
   return (
     <div style={{
-      background: "#0d1117",
-      border: "1px solid #1e2535",
+      background: "#FFFFFF",
+      border: "1px solid #DDE4EE",
       borderRadius: 8,
       padding: "12px 14px",
-      borderTop: accent ? `2px solid ${accent}` : "1px solid #1e2535",
+      borderTop: accent ? `2px solid ${accent}` : "1px solid #DDE4EE",
+      boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
     }}>
-      <div style={{ fontSize: 10, color: "#555", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: accent || "#e8eaf0", fontFamily: "'JetBrains Mono', monospace" }}>
-        {value}<span style={{ fontSize: 12, fontWeight: 400, marginLeft: 3, color: "#555" }}>{unit}</span>
+      <div style={{ fontSize: 10, color: "#8B95A8", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: accent || "#2D3548", fontFamily: "'JetBrains Mono', monospace" }}>
+        {value}<span style={{ fontSize: 12, fontWeight: 400, marginLeft: 3, color: "#8B95A8" }}>{unit}</span>
       </div>
     </div>
   );
 }
 
-function VideoPanel({ title, label, trained }) {
+const BADGE_STYLES = {
+  neutral: { bg: "#EEF1F6", color: "#5C6778" },
+  pipeline: { bg: "#E8F0FA", color: "#2E6BA8" },
+  flood: { bg: "#E8EEF8", color: "#3B5F8C" },
+  fail: { bg: "#FCE8E8", color: "#D63B3A" },
+  success: { bg: "#E6F5EE", color: "#168F66" },
+};
+
+function VideoPanel({ title, badge, badgeTone = "neutral", src, caption, footnote, playing }) {
+  const badgeStyle = BADGE_STYLES[badgeTone] || BADGE_STYLES.neutral;
+
   return (
     <div style={{
-      background: "#080b10",
-      border: "1px solid #1e2535",
+      background: "#FFFFFF",
+      border: "1px solid #DDE4EE",
       borderRadius: 10,
       overflow: "hidden",
       display: "flex",
       flexDirection: "column",
+      height: "100%",
+      boxShadow: "0 1px 3px rgba(15, 23, 42, 0.05)",
     }}>
       <div style={{
         padding: "8px 14px",
-        borderBottom: "1px solid #1e2535",
+        borderBottom: "1px solid #E8EDF4",
         display: "flex",
-        alignItems: "center",
+        alignItems: "flex-start",
         justifyContent: "space-between",
+        gap: 8,
+        background: "#FAFBFD",
       }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: "#8892a4", letterSpacing: "0.06em", textTransform: "uppercase" }}>{title}</span>
-        {label && (
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#5C6778", letterSpacing: "0.06em", textTransform: "uppercase" }}>{title}</div>
+          {caption && (
+            <div style={{ fontSize: 10, color: "#8B95A8", marginTop: 3, lineHeight: 1.35 }}>{caption}</div>
+          )}
+        </div>
+        {badge && (
           <span style={{
             fontSize: 10,
             padding: "2px 8px",
             borderRadius: 4,
-            background: trained ? "#0f3d2a" : "#2a0f0f",
-            color: trained ? "#1D9E75" : "#E24B4A",
+            background: badgeStyle.bg,
+            color: badgeStyle.color,
             fontWeight: 600,
             letterSpacing: "0.05em",
-          }}>{label}</span>
+            flexShrink: 0,
+          }}>{badge}</span>
         )}
       </div>
+      <div style={{ flex: 1, minHeight: 140, background: "#EEF1F6", position: "relative", overflow: "hidden" }}>
+        <div style={{
+          position: "absolute", inset: 0,
+          display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+          padding: 12, textAlign: "center",
+          background: "linear-gradient(135deg, #F4F7FB 0%, #EEF2F8 100%)",
+          zIndex: 0,
+        }}>
+          <div style={{ fontSize: 10, color: "#7A8496", fontFamily: "monospace", marginBottom: 4 }}>{src || "awaiting clip"}</div>
+          <div style={{ fontSize: 10, color: "#9AA5B8", lineHeight: 1.4 }}>{footnote}</div>
+        </div>
+        {src && (
+          <video
+            key={src}
+            src={src}
+            autoPlay={playing}
+            loop
+            muted
+            playsInline
+            style={{ width: "100%", height: "100%", objectFit: "cover", position: "relative", zIndex: 1, display: "block" }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ResultComparePanel({ scenario, playing }) {
+  const mode = SCENARIO_MODES[scenario];
+  const untrained = SCENARIO_MODES.baseline;
+  const trained = SCENARIO_MODES.i2v;
+
+  return (
+    <div style={{
+      background: "#FFFFFF",
+      border: "1px solid #DDE4EE",
+      borderRadius: 10,
+      overflow: "hidden",
+      display: "flex",
+      flexDirection: "column",
+      height: "100%",
+      boxShadow: "0 1px 3px rgba(15, 23, 42, 0.05)",
+    }}>
+      <div style={{
+        padding: "8px 14px",
+        borderBottom: "1px solid #E8EDF4",
+        display: "flex",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        gap: 8,
+        background: "#FAFBFD",
+      }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "#5C6778", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            04 — Before / after
+          </div>
+          <div style={{ fontSize: 10, color: "#8B95A8", marginTop: 3, lineHeight: 1.35 }}>
+            Same Helios flood · green outline = active run
+          </div>
+        </div>
+        <span style={{
+          fontSize: 10,
+          padding: "2px 8px",
+          borderRadius: 4,
+          background: (BADGE_STYLES[mode.resultTone] || BADGE_STYLES.neutral).bg,
+          color: (BADGE_STYLES[mode.resultTone] || BADGE_STYLES.neutral).color,
+          fontWeight: 600,
+          letterSpacing: "0.05em",
+          flexShrink: 0,
+        }}>
+          {mode.resultBadge}
+        </span>
+      </div>
+
       <div style={{
         flex: 1,
         minHeight: 140,
-        background: trained
-          ? "linear-gradient(135deg, #061a10 0%, #0a2818 100%)"
-          : "linear-gradient(135deg, #15060a 0%, #200a10 100%)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        position: "relative",
-        overflow: "hidden",
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr",
+        background: "#EEF1F6",
       }}>
-        <div style={{
-          position: "absolute", inset: 0,
-          backgroundImage: "repeating-linear-gradient(0deg, transparent, transparent 29px, #ffffff08 30px), repeating-linear-gradient(90deg, transparent, transparent 29px, #ffffff05 30px)",
-        }} />
-        <div style={{ textAlign: "center", position: "relative" }}>
-          <div style={{ fontSize: 11, color: "#444", marginBottom: 6 }}>
-            {trained ? "📹 Trained model tracking" : "📹 Baseline model"}
-          </div>
-          <div style={{ fontSize: 10, color: "#333", fontFamily: "monospace" }}>
-            Drop video file here or connect Helios feed
-          </div>
-        </div>
-        {!trained && (
-          <div style={{
-            position: "absolute", top: 8, right: 8,
-            width: 8, height: 8, borderRadius: "50%",
-            background: "#E24B4A",
-            boxShadow: "0 0 6px #E24B4A",
-            animation: "blink 1.2s infinite",
-          }} />
-        )}
+        {[untrained, trained].map((side) => {
+          const active = side === mode;
+          return (
+            <div
+              key={side.buttonLabel}
+              style={{
+                position: "relative",
+                minHeight: 140,
+                borderRight: side === untrained ? "1px solid #DDE4EE" : undefined,
+                opacity: active ? 1 : 0.55,
+                outline: active ? "2px solid #168F66" : "none",
+                outlineOffset: -2,
+                overflow: "hidden",
+              }}
+            >
+              <div style={{
+                position: "absolute", top: 6, left: 6, right: 6, zIndex: 2,
+                fontSize: 9, fontWeight: 700, letterSpacing: "0.04em",
+                padding: "2px 6px", borderRadius: 3, textAlign: "center",
+                background: active ? "#168F66" : "rgba(255,255,255,0.92)",
+                color: active ? "#fff" : "#5C6778",
+              }}>
+                {side === untrained ? "Before · untrained" : "After · DreamLoop"}
+              </div>
+              {side.resultSrc && (
+                <video
+                  src={side.resultSrc}
+                  autoPlay={playing && active}
+                  loop
+                  muted
+                  playsInline
+                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -160,10 +301,10 @@ function VideoPanel({ title, label, trained }) {
 
 function InfraStatus({ status }) {
   const colors = {
-    NOMINAL: { bg: "#0d1f0d", text: "#1D9E75", dot: "#1D9E75" },
-    "BEACON ACTIVE": { bg: "#1a1a0a", text: "#EF9F27", dot: "#EF9F27" },
-    DECELERATING: { bg: "#1a1400", text: "#EF9F27", dot: "#EF9F27" },
-    "SAFE SPEED": { bg: "#0d1f0d", text: "#1D9E75", dot: "#1D9E75" },
+    NOMINAL: { bg: "#E8F5EE", text: "#168F66", dot: "#168F66" },
+    "BEACON ACTIVE": { bg: "#FEF6E6", text: "#B8740A", dot: "#D48806" },
+    DECELERATING: { bg: "#FEF6E6", text: "#B8740A", dot: "#D48806" },
+    "SAFE SPEED": { bg: "#E8F5EE", text: "#168F66", dot: "#168F66" },
   };
   const c = colors[status] || colors.NOMINAL;
   return (
@@ -182,6 +323,7 @@ export default function App() {
   const [scenario, setScenario] = useState("baseline");
   const [running, setRunning] = useState(false);
   const { current, history, frame, total } = useMetrics(scenario, running);
+  const mode = SCENARIO_MODES[scenario];
 
   const handleScenario = (s) => {
     setRunning(false);
@@ -191,61 +333,81 @@ export default function App() {
   return (
     <div style={{
       minHeight: "100vh",
-      background: "#060911",
-      color: "#c8cdd8",
+      background: "#F0F3F8",
+      color: "#3D4659",
       fontFamily: "'Inter', system-ui, sans-serif",
       padding: "0",
     }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap');
-        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         button { cursor: pointer; font-family: inherit; }
       `}</style>
 
-      {/* Header */}
       <div style={{
-        borderBottom: "1px solid #1e2535",
+        borderBottom: "1px solid #DDE4EE",
         padding: "14px 24px",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        background: "#080c14",
+        background: "#FAFBFD",
+        boxShadow: "0 1px 0 rgba(15, 23, 42, 0.04)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <div style={{
             width: 32, height: 32, borderRadius: 8,
-            background: "linear-gradient(135deg, #1D9E75, #185FA5)",
+            background: "linear-gradient(135deg, #2DB88A, #3B7FC4)",
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 16,
+            color: "#fff",
           }}>⟳</div>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#e8eaf0", letterSpacing: "-0.01em" }}>DreamLoop</div>
-            <div style={{ fontSize: 10, color: "#444", letterSpacing: "0.1em", textTransform: "uppercase" }}>I2V Safe Driving Edition</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#1E2638", letterSpacing: "-0.01em" }}>DreamLoop</div>
+            <div style={{ fontSize: 10, color: "#8B95A8", letterSpacing: "0.1em", textTransform: "uppercase" }}>I2V Safe Driving · Flood demo</div>
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ display: "flex", gap: 6 }}>
-            {["baseline", "i2v"].map((s) => (
+            {["baseline"].map((s) => (
               <button
                 key={s}
                 onClick={() => handleScenario(s)}
+                title={SCENARIO_MODES[s].description}
                 style={{
                   padding: "6px 14px",
                   borderRadius: 6,
-                  border: scenario === s ? "1px solid #1D9E75" : "1px solid #1e2535",
-                  background: scenario === s ? "#0a2418" : "transparent",
-                  color: scenario === s ? "#1D9E75" : "#555",
+                  border: scenario === s ? "1px solid #168F66" : "1px solid #DDE4EE",
+                  background: scenario === s ? "#E6F5EE" : "#FFFFFF",
+                  color: scenario === s ? "#168F66" : "#7A8496",
                   fontSize: 11,
                   fontWeight: 600,
-                  letterSpacing: "0.06em",
-                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
                   transition: "all 0.2s",
                 }}
               >
-                {s === "baseline" ? "Baseline" : "I2V Intervention"}
+                {SCENARIO_MODES[s].buttonLabel}
               </button>
             ))}
+            {/* I2V intervention — re-enable when ready
+            <button
+              key="i2v"
+              onClick={() => handleScenario("i2v")}
+              title={SCENARIO_MODES.i2v.description}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 6,
+                border: scenario === "i2v" ? "1px solid #168F66" : "1px solid #DDE4EE",
+                background: scenario === "i2v" ? "#E6F5EE" : "#FFFFFF",
+                color: scenario === "i2v" ? "#168F66" : "#7A8496",
+                fontSize: 11,
+                fontWeight: 600,
+                letterSpacing: "0.04em",
+                transition: "all 0.2s",
+              }}
+            >
+              {SCENARIO_MODES.i2v.buttonLabel}
+            </button>
+            */}
           </div>
           <button
             onClick={() => setRunning((r) => !r)}
@@ -253,12 +415,13 @@ export default function App() {
               padding: "6px 18px",
               borderRadius: 6,
               border: "none",
-              background: running ? "#3d1010" : "#1D9E75",
-              color: running ? "#E24B4A" : "#fff",
+              background: running ? "#FCE8E8" : "#168F66",
+              color: running ? "#D63B3A" : "#fff",
               fontSize: 12,
               fontWeight: 700,
               letterSpacing: "0.04em",
               transition: "all 0.2s",
+              boxShadow: running ? "none" : "0 1px 3px rgba(22, 143, 102, 0.25)",
             }}
           >
             {running ? "■ STOP" : "▶ RUN"}
@@ -268,39 +431,37 @@ export default function App() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", minHeight: "calc(100vh - 61px)" }}>
 
-        {/* Main panels */}
         <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
 
-          {/* Status bar */}
           <div style={{
-            background: "#0d1117",
-            border: "1px solid #1e2535",
+            background: "#FFFFFF",
+            border: "1px solid #DDE4EE",
             borderRadius: 8,
             padding: "10px 16px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
+            boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 11, color: "#444", letterSpacing: "0.08em", textTransform: "uppercase" }}>Scenario</span>
-              <span style={{ fontSize: 12, fontWeight: 600, color: "#8892a4" }}>
-                {scenario === "baseline" ? "Unprotected — No I2V Infrastructure" : "Protected — V2X Smart Beacon Active"}
-              </span>
+            <div style={{ fontSize: 10, color: "#8B95A8", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
+              Driving simulation (panels 1–3 stay the same clip)
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 11, color: "#444" }}>Frame {frame + 1}/{total}</span>
-              <InfraStatus status={current.infra} />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#1E2638" }}>{mode.headline}</div>
+                <div style={{ fontSize: 11, color: "#6B7689", marginTop: 2 }}>{mode.description}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ fontSize: 11, color: "#8B95A8" }}>Frame {frame + 1}/{total}</span>
+                <InfraStatus status={current.infra} />
+              </div>
             </div>
           </div>
 
-          {/* Event label */}
           <div style={{
             padding: "8px 16px",
             borderRadius: 6,
-            background: current.risk > 70 ? "#1a0808" : current.risk > 40 ? "#141000" : "#081410",
-            border: `1px solid ${current.risk > 70 ? "#E24B4A44" : current.risk > 40 ? "#EF9F2744" : "#1D9E7544"}`,
+            background: current.risk > 70 ? "#FDF0F0" : current.risk > 40 ? "#FEF8EB" : "#EDF8F3",
+            border: `1px solid ${current.risk > 70 ? "#D63B3A44" : current.risk > 40 ? "#D4880644" : "#168F6644"}`,
             fontSize: 12,
-            color: current.risk > 70 ? "#E24B4A" : current.risk > 40 ? "#EF9F27" : "#1D9E75",
+            color: current.risk > 70 ? "#C42E2D" : current.risk > 40 ? "#B8740A" : "#168F66",
             fontWeight: 600,
             letterSpacing: "0.04em",
             fontFamily: "'JetBrains Mono', monospace",
@@ -308,25 +469,64 @@ export default function App() {
             ▸ {current.label}
           </div>
 
-          {/* 4-panel video grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, flex: 1 }}>
-            <VideoPanel title="01 — Waymo Input" label="RAW CLIP" />
-            <VideoPanel title="02 — Cosmos Geometry" label="PHYSICS LOCK" />
-            <VideoPanel title="03 — Helios Flood Render" label="UNTRAINED" trained={false} />
-            <VideoPanel title="04 — DreamLoop Result" label="TRAINED" trained={true} />
+          {/* Pipeline explainer
+          <div style={{
+            padding: "8px 12px",
+            borderRadius: 6,
+            background: "#EEF1F6",
+            border: "1px dashed #C5D0E0",
+            fontSize: 10,
+            color: "#6B7689",
+            lineHeight: 1.45,
+          }}>
+            <strong style={{ color: "#4A5568" }}>Pipeline (same for both buttons):</strong>{" "}
+            Waymo raw → Cosmos bboxes → Helios flood weather → Panel 4 compares perception with vs without DreamLoop training.
+            Optional later: <code style={{ fontSize: 9 }}>public/videos/pedestrian_example.mp4</code>
+          </div>
+          */}
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, flex: 1, alignItems: "stretch" }}>
+            <VideoPanel
+              title="01 — Waymo input"
+              badge="RAW CLIP"
+              badgeTone="neutral"
+              src={VIDEO_ASSETS.waymo}
+              caption="Clean baseline Waymo footage — same clip every time"
+              footnote="public/videos/waymo_input.mp4"
+              playing={running}
+            />
+            <VideoPanel
+              title="02 — Cosmos geometry"
+              badge="BBOX OVERLAY"
+              badgeTone="pipeline"
+              src={VIDEO_ASSETS.cosmos}
+              caption="Same clip with bounding boxes burned in (Person 2)"
+              footnote="public/videos/cosmos_geometry.mp4"
+              playing={running}
+            />
+            <VideoPanel
+              title="03 — Helios flood render"
+              badge="FLOOD SCENE"
+              badgeTone="flood"
+              src={VIDEO_ASSETS.helios}
+              caption="Rain, standing water, spray on top of Cosmos geometry"
+              footnote="public/videos/helios_flood.mp4"
+              playing={running}
+            />
+            <ResultComparePanel scenario={scenario} playing={running} />
           </div>
 
-          {/* Risk history spark */}
           <div style={{
-            background: "#0d1117",
-            border: "1px solid #1e2535",
+            background: "#FFFFFF",
+            border: "1px solid #DDE4EE",
             borderRadius: 8,
             padding: "10px 16px",
+            boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
           }}>
-            <div style={{ fontSize: 10, color: "#444", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>Risk timeline</div>
+            <div style={{ fontSize: 10, color: "#8B95A8", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>Risk timeline</div>
             <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 40 }}>
               {history.map((h, i) => {
-                const color = h.risk > 70 ? "#E24B4A" : h.risk > 40 ? "#EF9F27" : "#1D9E75";
+                const color = h.risk > 70 ? "#D63B3A" : h.risk > 40 ? "#D48806" : "#168F66";
                 return (
                   <div
                     key={i}
@@ -335,71 +535,72 @@ export default function App() {
                       height: `${(h.risk / 100) * 40}px`,
                       background: color,
                       borderRadius: 2,
-                      opacity: 0.4 + (i / history.length) * 0.6,
+                      opacity: 0.35 + (i / history.length) * 0.65,
                       transition: "height 0.4s ease",
                     }}
                   />
                 );
               })}
               {history.length === 0 && (
-                <span style={{ fontSize: 11, color: "#333" }}>Run a scenario to see timeline</span>
+                <span style={{ fontSize: 11, color: "#9AA5B8" }}>Hit RUN to animate metrics for the selected button</span>
               )}
             </div>
           </div>
         </div>
 
-        {/* Sidebar metrics */}
         <div style={{
-          borderLeft: "1px solid #1e2535",
+          borderLeft: "1px solid #DDE4EE",
           padding: 16,
           display: "flex",
           flexDirection: "column",
           gap: 12,
-          background: "#080c14",
+          background: "#FAFBFD",
         }}>
-          <div style={{ fontSize: 10, color: "#444", letterSpacing: "0.1em", textTransform: "uppercase" }}>Live Metrics</div>
+          <div style={{ fontSize: 10, color: "#8B95A8", letterSpacing: "0.1em", textTransform: "uppercase" }}>Live metrics</div>
 
           <MetricCard
             label="Vehicle Speed"
             value={current.speed}
             unit="MPH"
-            accent={current.speed > 55 ? "#E24B4A" : current.speed > 40 ? "#EF9F27" : "#1D9E75"}
+            accent={current.speed > 55 ? "#D63B3A" : current.speed > 40 ? "#D48806" : "#168F66"}
           />
           <MetricCard
             label="Road Friction"
             value={current.friction.toFixed(2)}
             unit="μ"
-            accent={current.friction < 0.2 ? "#E24B4A" : current.friction < 0.5 ? "#EF9F27" : "#1D9E75"}
+            accent={current.friction < 0.2 ? "#D63B3A" : current.friction < 0.5 ? "#D48806" : "#168F66"}
           />
 
           <div style={{
-            background: "#0d1117",
-            border: "1px solid #1e2535",
+            background: "#FFFFFF",
+            border: "1px solid #DDE4EE",
             borderRadius: 8,
             padding: "12px 14px",
+            boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
           }}>
             <RiskBar value={current.risk} />
           </div>
 
           <div style={{
-            background: "#0d1117",
-            border: "1px solid #1e2535",
+            background: "#FFFFFF",
+            border: "1px solid #DDE4EE",
             borderRadius: 8,
             padding: "12px 14px",
+            boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
           }}>
-            <div style={{ fontSize: 10, color: "#555", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>Infrastructure</div>
+            <div style={{ fontSize: 10, color: "#8B95A8", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>Infrastructure</div>
             <InfraStatus status={current.infra} />
           </div>
 
-          {/* Pipeline status */}
           <div style={{
             marginTop: "auto",
-            background: "#0d1117",
-            border: "1px solid #1e2535",
+            background: "#FFFFFF",
+            border: "1px solid #DDE4EE",
             borderRadius: 8,
             padding: "12px 14px",
+            boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
           }}>
-            <div style={{ fontSize: 10, color: "#555", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Pipeline</div>
+            <div style={{ fontSize: 10, color: "#8B95A8", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Pipeline</div>
             {[
               { name: "Cosmos-Drive", status: "ready" },
               { name: "Helios V2V", status: "ready" },
@@ -407,13 +608,13 @@ export default function App() {
               { name: "Result Feed", status: running ? "active" : "idle" },
             ].map((p) => (
               <div key={p.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                <span style={{ fontSize: 11, color: "#666" }}>{p.name}</span>
+                <span style={{ fontSize: 11, color: "#6B7689" }}>{p.name}</span>
                 <span style={{
                   fontSize: 10,
                   padding: "2px 7px",
                   borderRadius: 4,
-                  background: p.status === "active" ? "#0a2418" : p.status === "ready" ? "#0d1a2a" : "#111",
-                  color: p.status === "active" ? "#1D9E75" : p.status === "ready" ? "#185FA5" : "#444",
+                  background: p.status === "active" ? "#E6F5EE" : p.status === "ready" ? "#E8F0FA" : "#EEF1F6",
+                  color: p.status === "active" ? "#168F66" : p.status === "ready" ? "#2E6BA8" : "#8B95A8",
                   fontWeight: 600,
                 }}>{p.status}</span>
               </div>
