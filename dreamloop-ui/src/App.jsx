@@ -10,7 +10,7 @@ const VIDEO_ASSETS = {
 const WEATHER_COLUMNS = [
   {
     key: "waymo",
-    pipeline: "Waymo",
+    pipeline: "Weather Condition 1",
     weather: "Normal",
     badge: "CLEAR",
     badgeTone: "neutral",
@@ -19,7 +19,7 @@ const WEATHER_COLUMNS = [
   },
   {
     key: "cosmos",
-    pipeline: "Cosmos",
+    pipeline: "Weather Condition 2",
     weather: "Rainy",
     badge: "RAIN",
     badgeTone: "pipeline",
@@ -28,7 +28,7 @@ const WEATHER_COLUMNS = [
   },
   {
     key: "helios",
-    pipeline: "Helios",
+    pipeline: "Weather Condition 3",
     weather: "Blizzard",
     badge: "SNOW",
     badgeTone: "flood",
