@@ -1,0 +1,25 @@
+# DreamLoop YOLO tracking — edit and run:
+#   python scripts/run_yolo_tracking.py --config scripts/yolo_tracking_config.yaml
+
+model: yolov8s.pt          # n=nano (fast), s/m/l = better in rain/snow
+imgsz: 1280                # inference size (640 | 960 | 1280)
+conf: 0.28                 # detection confidence (lower = more boxes)
+iou: 0.45                  # NMS IoU
+max_det: 80
+device: ""                 # "" = auto, "0" = GPU, "cpu"
+half: false                # FP16 on CUDA
+tracker: botsort.yaml      # botsort.yaml | bytetrack.yaml
+
+stride: 2                  # 2 = every other frame (~2× faster); 1 = max accuracy
+
+# Parked vs moving (normalized 0–1 coordinates, ~seconds of video)
+parked:
+  history_frames: 45       # ~1.5s at 30fps
+  min_track_frames: 20     # need this many samples before labeling parked
+  displacement_thresh: 0.022   # max bbox-center span → likely parked
+  speed_thresh: 0.006      # max speed (norm coords / second) → parked
+  score_threshold: 0.55    # >= this → parked (tab 3 hides box)
+  roadside_x_margin: 0.22      # |cx-0.5| > 0.5-margin boosts parked score
+  roadside_boost: 0.15
+
+preview: false

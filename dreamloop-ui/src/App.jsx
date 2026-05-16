@@ -51,6 +51,20 @@ const DETECTION_URLS = {
   helios: "/detections/helios.json",
 };
 
+/** Match scripts/yolo_tracking_config.yaml parked.score_threshold */
+const DEFAULT_PARKED_SCORE_THRESHOLD = 0.55;
+
+function parkedScoreThreshold(trackData) {
+  return trackData?.parkedConfig?.scoreThreshold ?? DEFAULT_PARKED_SCORE_THRESHOLD;
+}
+
+function isParked(car, trackData) {
+  if (car.parked === true) return true;
+  const score = car.parkedScore;
+  if (typeof score === "number") return score >= parkedScoreThreshold(trackData);
+  return false;
+}
+
 function useDetectionTracks() {
   const [tracks, setTracks] = useState({});
   const [loaded, setLoaded] = useState(false);
@@ -254,45 +268,51 @@ function jitter(box, t, id, amount = 0.012) {
   };
 }
 
-function drawDetections(ctx, w, h, overlayMode, videoTime, weatherKey, cars) {
+function drawDetections(ctx, w, h, overlayMode, videoTime, weatherKey, cars, trackData) {
   const weatherJitter = weatherKey === "helios" ? 0.018 : weatherKey === "cosmos" ? 0.01 : 0.006;
   const useMock = cars === MOCK_CARS;
+  const inferLabel = trackData?.model
+    ? `${trackData.model} @ ${trackData.imgsz || "?"}px`
+    : "YOLOv8n";
 
   cars.forEach((car) => {
     const base = useMock
       ? jitter(car, videoTime, car.id, overlayMode === "partial" ? weatherJitter : 0.004)
       : car;
+    const parked = isParked(car, trackData);
     const px = base.x * w;
     const py = base.y * h;
     const pw = base.w * w;
     const ph = base.h * h;
 
-    if (overlayMode === "trained" && car.parked) {
-      ctx.save();
-      ctx.strokeStyle = "rgba(120, 130, 150, 0.35)";
-      ctx.setLineDash([4, 4]);
-      ctx.lineWidth = 1;
-      ctx.strokeRect(px, py, pw, ph);
-      ctx.fillStyle = "rgba(30, 38, 56, 0.55)";
-      ctx.font = "10px JetBrains Mono, monospace";
-      ctx.fillText("parked · suppressed", px + 4, py + ph - 6);
-      ctx.restore();
+    if (overlayMode === "trained" && parked) {
+      if (useMock) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(120, 130, 150, 0.35)";
+        ctx.setLineDash([4, 4]);
+        ctx.lineWidth = 1;
+        ctx.strokeRect(px, py, pw, ph);
+        ctx.fillStyle = "rgba(30, 38, 56, 0.55)";
+        ctx.font = "10px JetBrains Mono, monospace";
+        ctx.fillText("parked · suppressed", px + 4, py + ph - 6);
+        ctx.restore();
+      }
       return;
     }
 
-    if (overlayMode === "partial" && car.parked) {
+    if (overlayMode === "partial" && parked) {
       const flicker = Math.sin(videoTime * 9 + car.id * 2.1) > -0.15;
       if (!flicker) return;
     }
 
     const conf = car.conf ?? (
-      overlayMode === "partial" && car.parked
+      overlayMode === "partial" && parked
         ? 0.55 + Math.abs(Math.sin(videoTime * 5 + car.id)) * 0.25
         : 0.88 + Math.abs(Math.sin(videoTime * 2 + car.id)) * 0.1
     );
 
-    const color = car.parked && overlayMode === "partial" ? "#D48806" : "#00E5A0";
-    const lineW = overlayMode === "partial" && car.parked ? 1.5 : 2;
+    const color = parked && overlayMode === "partial" ? "#D48806" : "#00E5A0";
+    const lineW = parked && overlayMode === "partial" ? 1.5 : 2;
 
     ctx.strokeStyle = color;
     ctx.lineWidth = lineW;
@@ -309,21 +329,23 @@ function drawDetections(ctx, w, h, overlayMode, videoTime, weatherKey, cars) {
     ctx.fillStyle = "#0B1220";
     ctx.fillText(tag, px + 4, Math.max(12, py - 5));
 
-    if (overlayMode === "partial" && car.parked) {
+    if (overlayMode === "partial" && parked) {
       ctx.fillStyle = "rgba(212, 136, 6, 0.85)";
       ctx.font = "9px Inter, sans-serif";
-      ctx.fillText("parked?", px + 4, py + ph - 4);
+      const hint = typeof car.parkedScore === "number" ? `parked ${car.parkedScore.toFixed(2)}` : "parked?";
+      ctx.fillText(hint, px + 4, py + ph - 4);
     }
   });
 
   if (overlayMode === "partial") {
     ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
     ctx.font = "10px Inter, sans-serif";
-    ctx.fillText("YOLOv8n · all classes · parked not filtered", 8, h - 10);
+    ctx.fillText(`${inferLabel} · all vehicles · parked shown`, 8, h - 10);
   } else if (overlayMode === "trained") {
     ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
     ctx.font = "10px Inter, sans-serif";
-    ctx.fillText("YOLOv8n + DreamLoop · moving vehicles only", 8, h - 10);
+    const th = parkedScoreThreshold(trackData);
+    ctx.fillText(`${inferLabel} · DreamLoop · parked score < ${th} only`, 8, h - 10);
   }
 }
 
@@ -348,7 +370,7 @@ function YoloOverlay({ videoRef, overlayMode, weatherKey, trackData, active }) {
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, w, h);
     const cars = sampleCars(trackData, video.currentTime || 0);
-    drawDetections(ctx, w, h, overlayMode, video.currentTime || 0, weatherKey, cars);
+    drawDetections(ctx, w, h, overlayMode, video.currentTime || 0, weatherKey, cars, trackData);
   }, [videoRef, overlayMode, weatherKey, trackData, active]);
 
   useEffect(() => {
