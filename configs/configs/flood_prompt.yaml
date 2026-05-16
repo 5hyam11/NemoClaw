@@ -1,0 +1,20 @@
+# Variant C — locked from Hour 3 testing.
+prompt: >
+  major street flooding, standing water 20-30cm deep across roadway,
+  vehicles displacing water with visible wakes, lane lines obscured by
+  mirror-like reflections of buildings and signals, dark stormy daylight,
+  photorealistic urban driving scene
+negative_prompt: >
+  cartoon, animated, blurry, low quality, watermark, text overlay
+helios:
+  checkpoint: /workspace/weights/Helios-Distilled
+  num_frames: 121          # ~5s @ 24fps
+  fps: 24
+  width: 768
+  height: 480
+  seed: 17
+  image_noise_sigma_min: 0.05
+  image_noise_sigma_max: 0.10
+  video_noise_sigma_min: 0.05
+  video_noise_sigma_max: 0.10
+  is_skip_first_chunk: false

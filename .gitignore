@@ -1,0 +1,7 @@
+weights/
+clips/raw/
+outputs/
+data/boxes/*.json
+__pycache__/
+*.pyc
+.venv/
