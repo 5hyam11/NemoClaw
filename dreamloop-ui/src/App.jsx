@@ -1,31 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 
-// #region agent log
-const debugLog = (location, message, data, hypothesisId) => {
-  fetch("http://127.0.0.1:7353/ingest/8bcebfee-df1d-41b5-b75b-5399f9e91c98", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "83c992" },
-    body: JSON.stringify({
-      sessionId: "83c992",
-      location,
-      message,
-      data,
-      hypothesisId,
-      timestamp: Date.now(),
-      runId: "pre-fix",
-    }),
-  }).catch(() => {});
-};
-// #endregion
-
 /**
  * Panels 1–3: same flood clip at each pipeline stage (unchanged by top buttons).
  * Panel 4: untrained vs DreamLoop result on that Helios flood scene.
  * Top buttons: simulate vehicle + I2V metrics only (not different source footage).
  */
 const VIDEO_ASSETS = {
-  waymo: "/videos/waymo_input.avi",
-  cosmos: "/videos/cosmos_geometry.avi",
+  waymo: "/videos/dreamloop_sunny.avi",
+  cosmos: "/videos/dreamloop_waymo.avi",
   helios: "/videos/dreamloop_blizzard.avi", // UI prefers .mp4 sibling when present (see srcCandidates)
   resultUntrained: "/videos/result_untrained_storm.avi",
   resultTrained: "/videos/result_trained_storm.avi",
@@ -176,45 +158,19 @@ function VideoPanel({ title, badge, badgeTone = "neutral", src, caption, footnot
     const candidates = srcCandidates(src);
 
     (async () => {
-      // #region agent log
-      debugLog("App.jsx:VideoPanel:useEffect", "panel mount src", { src, title, candidates }, "H5");
-      // #endregion
       let chosen = src;
       for (const url of candidates) {
         try {
           const res = await fetch(url, { method: "HEAD" });
-          // #region agent log
-          debugLog(
-            "App.jsx:VideoPanel:HEAD",
-            "asset HTTP check",
-            {
-              src,
-              url,
-              title,
-              status: res.status,
-              ok: res.ok,
-              contentType: res.headers.get("content-type"),
-              contentLength: res.headers.get("content-length"),
-            },
-            res.ok ? "H2" : "H2"
-          );
-          // #endregion
           if (res.ok) {
             chosen = url;
             break;
           }
-        } catch (err) {
-          // #region agent log
-          debugLog("App.jsx:VideoPanel:HEAD", "asset fetch failed", { url, title, err: String(err) }, "H2");
-          // #endregion
+        } catch {
+          /* try next candidate */
         }
       }
-      if (!cancelled) {
-        // #region agent log
-        debugLog("App.jsx:VideoPanel:resolve", "chosen playable src", { src, chosen, title }, "H4");
-        // #endregion
-        setResolvedSrc(chosen);
-      }
+      if (!cancelled) setResolvedSrc(chosen);
     })();
 
     return () => { cancelled = true; };
@@ -286,41 +242,11 @@ function VideoPanel({ title, badge, badgeTone = "neutral", src, caption, footnot
             muted
             playsInline
             preload="auto"
-            onLoadedData={(e) => {
-              const v = e.currentTarget;
-              // #region agent log
-              debugLog(
-                "App.jsx:VideoPanel:onLoadedData",
-                "video decoded",
-                { src, resolvedSrc, title, w: v.videoWidth, h: v.videoHeight, duration: v.duration, runId: "post-fix" },
-                "H5"
-              );
-              // #endregion
+            onLoadedData={() => {
               setVideoOk(true);
               setVideoError(false);
             }}
-            onError={(e) => {
-              const v = e.currentTarget;
-              const err = v.error;
-              // #region agent log
-              debugLog(
-                "App.jsx:VideoPanel:onError",
-                "video element error",
-                {
-                  src,
-                  resolvedSrc,
-                  title,
-                  code: err?.code,
-                  message: err?.message,
-                  runId: "post-fix",
-                  MEDIA_ERR_ABORTED: 1,
-                  MEDIA_ERR_NETWORK: 2,
-                  MEDIA_ERR_DECODE: 3,
-                  MEDIA_ERR_SRC_NOT_SUPPORTED: 4,
-                },
-                err?.code === 4 ? "H4" : err?.code === 3 ? "H1" : "H1"
-              );
-              // #endregion
+            onError={() => {
               setVideoOk(false);
               setVideoError(true);
             }}
@@ -625,7 +551,7 @@ export default function App() {
               badgeTone="neutral"
               src={VIDEO_ASSETS.waymo}
               caption="Clean baseline Waymo footage — same clip every time"
-              footnote="public/videos/waymo_input.avi"
+              footnote="public/videos/dreamloop_sunny.mp4"
               playing={running}
             />
             <VideoPanel
@@ -634,7 +560,7 @@ export default function App() {
               badgeTone="pipeline"
               src={VIDEO_ASSETS.cosmos}
               caption="Same clip with bounding boxes burned in (Person 2)"
-              footnote="public/videos/cosmos_geometry.avi"
+              footnote="public/videos/dreamloop_waymo.mp4"
               playing={running}
             />
             <VideoPanel
