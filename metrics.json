@@ -1,0 +1,11 @@
+{
+  "scenario_id": "flood_b",
+  "scenario_label": "With V2X Intervention",
+  "timestamp": 1778957288.39,
+  "speed_mph": 35.0,
+  "road_friction": 0.4,
+  "collision_risk": 0.18,
+  "infrastructure_status": "speed_advised",
+  "perception_confidence": 0.94,
+  "av_action": "safe_stop"
+}
