@@ -5,6 +5,17 @@ const VIDEO_ASSETS = {
   waymo: "/videos/dreamloop_sunny.avi",
   cosmos: "/videos/dreamloop_waymo.avi",
   helios: "/videos/dreamloop_blizzard.avi",
+  sim: "/videos/blizzard_5s.mp4",
+};
+
+const SIM_COLUMN = {
+  key: "sim",
+  pipeline: "Sim",
+  weather: "Blizzard · 5s clip",
+  badge: "SIM",
+  badgeTone: "flood",
+  src: VIDEO_ASSETS.sim,
+  footnote: "public/videos/blizzard_5s.mp4",
 };
 
 const WEATHER_COLUMNS = [
@@ -559,6 +570,7 @@ function InfraStatus({ status }) {
 
 export default function App() {
   const [scenario] = useState("baseline");
+  const [appView, setAppView] = useState("dashboard");
   const [perceptionTab, setPerceptionTab] = useState("raw");
   const [running, setRunning] = useState(false);
   const { tracks: detectionTracks, loaded: detectionsLoaded, hasReal: hasRealDetections } = useDetectionTracks();
@@ -602,20 +614,43 @@ export default function App() {
             <div style={{ fontSize: 10, color: "#8B95A8", letterSpacing: "0.1em", textTransform: "uppercase" }}>YOLOv8 · parked-car filter · weather matrix</div>
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
+            type="button"
+            onClick={() => {
+              setAppView((v) => (v === "sim" ? "dashboard" : "sim"));
+              setRunning(false);
+            }}
+            style={{
+              padding: "6px 16px",
+              borderRadius: 6,
+              border: appView === "sim" ? "1px solid #3B5F8C" : "1px solid #DDE4EE",
+              background: appView === "sim" ? "#E8EEF8" : "#FFFFFF",
+              color: appView === "sim" ? "#3B5F8C" : "#5C6778",
+              fontSize: 12,
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              transition: "all 0.2s",
+            }}
+          >
+            Sim
+          </button>
+          <button
+            type="button"
             onClick={() => setRunning((r) => !r)}
+            disabled={appView === "sim"}
             style={{
               padding: "6px 18px",
               borderRadius: 6,
               border: "none",
-              background: running ? "#FCE8E8" : "#168F66",
-              color: running ? "#D63B3A" : "#fff",
+              background: appView === "sim" ? "#EEF1F6" : running ? "#FCE8E8" : "#168F66",
+              color: appView === "sim" ? "#9AA5B8" : running ? "#D63B3A" : "#fff",
               fontSize: 12,
               fontWeight: 700,
               letterSpacing: "0.04em",
               transition: "all 0.2s",
-              boxShadow: running ? "none" : "0 1px 3px rgba(22, 143, 102, 0.25)",
+              boxShadow: appView === "sim" || running ? "none" : "0 1px 3px rgba(22, 143, 102, 0.25)",
+              cursor: appView === "sim" ? "not-allowed" : "pointer",
             }}
           >
             {running ? "■ STOP" : "▶ RUN"}
@@ -633,20 +668,27 @@ export default function App() {
             boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
           }}>
             <div style={{ fontSize: 10, color: "#8B95A8", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>
-              Perception mode
+              {appView === "sim" ? "Sim view" : "Perception mode"}
             </div>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#1E2638" }}>{mode.headline}</div>
-                <div style={{ fontSize: 11, color: "#6B7689", marginTop: 2 }}>{tab.description}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#1E2638" }}>
+                  {appView === "sim" ? "Blizzard simulation" : mode.headline}
+                </div>
+                <div style={{ fontSize: 11, color: "#6B7689", marginTop: 2 }}>
+                  {appView === "sim" ? "Single-clip preview · blizzard_5s.mp4" : tab.description}
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ fontSize: 11, color: "#8B95A8" }}>Frame {frame + 1}/{total}</span>
-                <InfraStatus status={current.infra} />
-              </div>
+              {appView === "dashboard" && (
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ fontSize: 11, color: "#8B95A8" }}>Frame {frame + 1}/{total}</span>
+                  <InfraStatus status={current.infra} />
+                </div>
+              )}
             </div>
           </div>
 
+          {appView === "dashboard" && (
           <div style={{
             display: "flex",
             gap: 6,
@@ -693,7 +735,9 @@ export default function App() {
               );
             })}
           </div>
+          )}
 
+          {appView === "dashboard" && (
           <div style={{
             padding: "8px 16px",
             borderRadius: 6,
@@ -707,25 +751,35 @@ export default function App() {
           }}>
             ▸ {current.label}
           </div>
+          )}
 
           <div style={{
             display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
+            gridTemplateColumns: appView === "sim" ? "1fr" : "repeat(3, 1fr)",
             gap: 12,
             flex: 1,
             alignItems: "stretch",
-            minHeight: 320,
+            minHeight: appView === "sim" ? 480 : 320,
           }}>
-            {WEATHER_COLUMNS.map((col) => (
+            {appView === "sim" ? (
               <WeatherVideoPanel
-                key={col.key}
-                column={col}
-                overlayMode={tab.overlay}
-                trackData={detectionTracks[col.key]}
+                column={SIM_COLUMN}
+                overlayMode="none"
+                trackData={null}
               />
-            ))}
+            ) : (
+              WEATHER_COLUMNS.map((col) => (
+                <WeatherVideoPanel
+                  key={col.key}
+                  column={col}
+                  overlayMode={tab.overlay}
+                  trackData={detectionTracks[col.key]}
+                />
+              ))
+            )}
           </div>
 
+          {appView === "dashboard" && (
           <div style={{
             background: "#FFFFFF",
             border: "1px solid #DDE4EE",
@@ -756,6 +810,7 @@ export default function App() {
               )}
             </div>
           </div>
+          )}
         </div>
 
         <div style={{
