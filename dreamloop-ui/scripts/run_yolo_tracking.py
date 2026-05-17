@@ -33,6 +33,7 @@ DEFAULT_CLIPS = {
     "waymo": ("dreamloop_sunny", "Normal / Waymo"),
     "cosmos": ("dreamloop_waymo", "Rainy / Cosmos"),
     "helios": ("dreamloop_blizzard", "Blizzard / Helios"),
+    "sim": ("blizzard_5s", "Sim · blizzard 5s"),
 }
 
 
@@ -376,7 +377,7 @@ def main() -> None:
     jobs: list[tuple[str, Path]] = []
     if args.videos:
         if len(args.videos) == 1 and not args.key:
-            raise SystemExit("Pass --key waymo|cosmos|helios when processing a single file")
+            raise SystemExit("Pass --key waymo|cosmos|helios|sim when processing a single file")
         for i, v in enumerate(args.videos):
             p = Path(v)
             if not p.is_file():

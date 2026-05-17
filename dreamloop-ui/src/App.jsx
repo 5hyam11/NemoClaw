@@ -60,6 +60,7 @@ const DETECTION_URLS = {
   waymo: "/detections/waymo.json",
   cosmos: "/detections/cosmos.json",
   helios: "/detections/helios.json",
+  sim: "/detections/sim.json",
 };
 
 /** Match scripts/yolo_tracking_config.yaml parked.score_threshold */
@@ -296,6 +297,21 @@ function drawDetections(ctx, w, h, overlayMode, videoTime, weatherKey, cars, tra
     const pw = base.w * w;
     const ph = base.h * h;
 
+    if (overlayMode === "yolo") {
+      const conf = car.conf ?? 0.85;
+      ctx.strokeStyle = "#00E5A0";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(px, py, pw, ph);
+      const tag = `${car.label} ${conf.toFixed(2)}`;
+      ctx.font = "bold 11px JetBrains Mono, monospace";
+      const tw = ctx.measureText(tag).width + 8;
+      ctx.fillStyle = "#00E5A0";
+      ctx.fillRect(px, Math.max(0, py - 16), tw, 16);
+      ctx.fillStyle = "#0B1220";
+      ctx.fillText(tag, px + 4, Math.max(12, py - 5));
+      return;
+    }
+
     if (overlayMode === "trained" && parked) {
       if (useMock) {
         ctx.save();
@@ -357,6 +373,10 @@ function drawDetections(ctx, w, h, overlayMode, videoTime, weatherKey, cars, tra
     ctx.font = "10px Inter, sans-serif";
     const th = parkedScoreThreshold(trackData);
     ctx.fillText(`${inferLabel} · DreamLoop · parked score < ${th} only`, 8, h - 10);
+  } else if (overlayMode === "yolo") {
+    ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
+    ctx.font = "10px Inter, sans-serif";
+    ctx.fillText(`${inferLabel} · YOLOv8 vehicle detection`, 8, h - 10);
   }
 }
 
@@ -571,9 +591,11 @@ function InfraStatus({ status }) {
 export default function App() {
   const [scenario] = useState("baseline");
   const [appView, setAppView] = useState("dashboard");
+  const [simYolo, setSimYolo] = useState(false);
   const [perceptionTab, setPerceptionTab] = useState("raw");
   const [running, setRunning] = useState(false);
   const { tracks: detectionTracks, loaded: detectionsLoaded, hasReal: hasRealDetections } = useDetectionTracks();
+  const simTrackData = detectionTracks.sim ?? detectionTracks.helios ?? null;
   const { current, history, frame, total } = useMetrics(scenario, running);
   const mode = SCENARIO_MODES[scenario];
   const tab = PERCEPTION_TABS[perceptionTab];
@@ -618,7 +640,10 @@ export default function App() {
           <button
             type="button"
             onClick={() => {
-              setAppView((v) => (v === "sim" ? "dashboard" : "sim"));
+              setAppView((v) => {
+                if (v === "sim") setSimYolo(false);
+                return v === "sim" ? "dashboard" : "sim";
+              });
               setRunning(false);
             }}
             style={{
@@ -676,9 +701,57 @@ export default function App() {
                   {appView === "sim" ? "Blizzard simulation" : mode.headline}
                 </div>
                 <div style={{ fontSize: 11, color: "#6B7689", marginTop: 2 }}>
-                  {appView === "sim" ? "Single-clip preview · blizzard_5s.mp4" : tab.description}
+                  {appView === "sim"
+                    ? (simYolo ? "YOLOv8 boxes on blizzard_5s.mp4" : "Single-clip preview · blizzard_5s.mp4")
+                    : tab.description}
                 </div>
               </div>
+              {appView === "sim" && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    padding: 3,
+                    background: "#EEF1F6",
+                    borderRadius: 6,
+                    border: "1px solid #DDE4EE",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setSimYolo(false)}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: 4,
+                      border: "none",
+                      background: !simYolo ? "#FFFFFF" : "transparent",
+                      color: !simYolo ? "#1E2638" : "#6B7689",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      boxShadow: !simYolo ? "0 1px 2px rgba(15,23,42,0.08)" : "none",
+                    }}
+                  >
+                    Video
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSimYolo(true)}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: 4,
+                      border: "none",
+                      background: simYolo ? "#FFFFFF" : "transparent",
+                      color: simYolo ? "#168F66" : "#6B7689",
+                      fontSize: 11,
+                      fontWeight: 600,
+                      boxShadow: simYolo ? "0 1px 2px rgba(15,23,42,0.08)" : "none",
+                    }}
+                  >
+                    YOLOv8
+                  </button>
+                </div>
+              )}
               {appView === "dashboard" && (
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                   <span style={{ fontSize: 11, color: "#8B95A8" }}>Frame {frame + 1}/{total}</span>
@@ -764,8 +837,8 @@ export default function App() {
             {appView === "sim" ? (
               <WeatherVideoPanel
                 column={SIM_COLUMN}
-                overlayMode="none"
-                trackData={null}
+                overlayMode={simYolo ? "yolo" : "none"}
+                trackData={simYolo ? simTrackData : null}
               />
             ) : (
               WEATHER_COLUMNS.map((col) => (
