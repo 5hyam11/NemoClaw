@@ -1,16 +1,16 @@
 """
-DreamLoop AR Environment — V9
-=============================
-What's new vs V8:
-  * Minimap removed — replaced by a 3rd-person PLAYER CAR rendered in the
-    middle of the road (drawn after warp, so it stays stable like a racing game)
-  * Mode-specific freeze: only Mode 1 (Sunny) pauses on emergency brake.
-    Mode 2 (Rain) and Mode 3 (Blizzard) keep the video rolling so the crash
-    unfolds live.
-  * Player car yaws with skid angle, slides subtly with drift, and emits tire
-    smoke + glowing brake lights during a skid.
-  * Skid angle + drift are clamped so the physics stay readable.
-  * HUD narrowed to give the player car clean center-screen real estate.
+DreamLoop AR Environment — V10
+==============================
+What's new vs V9:
+  * Scenario 4: URBAN STORM — wet city street with a stop sign / parked-car
+    obstacle 28m ahead. Same physics + skid mechanics as 1-3, plus an
+    obstacle layer that determines if you stop in time.
+  * AR DANGER ZONE: a red, pulsing stop line projected on the road that
+    slides toward the camera as you approach. Turns to a collision marker
+    if you blow through it.
+  * Outcome badge: SAFE STOP / COLLISION fires after the car stops, with
+    distance-to-obstacle readout in the HUD when scenario 4 is active.
+  * Keypad 4 selects the new scenario.
 """
 
 import cv2
@@ -147,6 +147,141 @@ def draw_ar_lane_lines(img, lateral_drift, skid_angle, width, height):
                             [cxw,     cyw - 16],
                             [cxw + 22, cyw + 16]], dtype=np.int32)
             cv2.polylines(img, [pts], False, (40, 80, 255), 4, cv2.LINE_AA)
+
+
+def draw_ar_danger_zone(img, dist_remaining_m, total_obstacle_m,
+                        lateral_drift, skid_angle, time_elapsed,
+                        outcome, width, height):
+    """Red AR stop line that slides toward camera as the car closes in.
+    Turns to a collision splash when distance_remaining <= 0."""
+    if total_obstacle_m is None:
+        return
+
+    vp_x = width // 2
+    vp_y = int(height * 0.50)
+
+    # Same lane math as the lane drawer so the marker sits on the road plane
+    drift_norm = max(-1.0, min(1.0, lateral_drift / 45.0))
+    drift_px = -int(drift_norm * 240)
+    drift_top_px = drift_px // 4
+    skid_rad = math.radians(skid_angle * 0.4)
+
+    def rot(x, y):
+        dx, dy = x - vp_x, y - vp_y
+        cs, sn = math.cos(skid_rad), math.sin(skid_rad)
+        return int(vp_x + dx * cs - dy * sn), int(vp_y + dx * sn + dy * cs)
+
+    # Map distance remaining -> screen-y on the road plane
+    # 0m remaining = right under the camera (y = height)
+    # total obstacle distance = on the horizon (y = vp_y)
+    t = max(0.0, min(1.0, dist_remaining_m / total_obstacle_m))
+    # Non-linear perspective compression — things close to horizon move slow
+    t_curve = t ** 1.6
+    obs_y = int(vp_y + (height - vp_y) * (1 - t_curve))
+
+    # Lane width at this y — linear blend between top and bottom edges
+    lane_half_top, lane_half_bot = 32, 220
+    lane_half = lane_half_top + (lane_half_bot - lane_half_top) * (1 - t_curve)
+    obs_x_offset = int(drift_top_px + (drift_px - drift_top_px) * (1 - t_curve))
+
+    pulse = (math.sin(time_elapsed * 7) + 1) / 2  # 0..1
+    base_red = (40, 60, 220)
+
+    if outcome == "COLLISION" or dist_remaining_m <= 0:
+        # Slammed through it — flash splash near the car
+        splash_y = height - 80
+        splash_overlay = img.copy()
+        for r, a in [(220, 0.55), (160, 0.7), (95, 0.9)]:
+            cv2.ellipse(splash_overlay, (vp_x + int(drift_px * 0.3), splash_y),
+                        (r, int(r * 0.45)), 0, 0, 360, (40, 60, 240), -1)
+        cv2.addWeighted(splash_overlay, 0.5, img, 0.5, 0, img)
+        # X marker
+        x_size = 50
+        cv2.line(img, (vp_x - x_size, splash_y - x_size),
+                 (vp_x + x_size, splash_y + x_size), (255, 255, 255), 4, cv2.LINE_AA)
+        cv2.line(img, (vp_x + x_size, splash_y - x_size),
+                 (vp_x - x_size, splash_y + x_size), (255, 255, 255), 4, cv2.LINE_AA)
+        return
+
+    # ---- Danger band: filled red trapezoid on the road plane ----
+    band_height = max(6, int(28 * (1 - t_curve) + 6))
+    p_top_l = rot(vp_x - int(lane_half * 0.92) + obs_x_offset, obs_y - band_height // 2)
+    p_top_r = rot(vp_x + int(lane_half * 0.92) + obs_x_offset, obs_y - band_height // 2)
+    p_bot_l = rot(vp_x - int(lane_half) + obs_x_offset, obs_y + band_height // 2)
+    p_bot_r = rot(vp_x + int(lane_half) + obs_x_offset, obs_y + band_height // 2)
+
+    overlay = img.copy()
+    cv2.fillPoly(overlay, [np.array([p_top_l, p_top_r, p_bot_r, p_bot_l], dtype=np.int32)], base_red)
+    alpha = 0.35 + pulse * 0.30
+    cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
+
+    # Hash-marks across the band for a "construction tape" feel
+    n_hashes = 10
+    for i in range(n_hashes):
+        u1 = i / n_hashes
+        u2 = (i + 0.45) / n_hashes
+        x1_top = int(p_top_l[0] * (1 - u1) + p_top_r[0] * u1)
+        y1_top = int(p_top_l[1] * (1 - u1) + p_top_r[1] * u1)
+        x2_top = int(p_top_l[0] * (1 - u2) + p_top_r[0] * u2)
+        y2_top = int(p_top_l[1] * (1 - u2) + p_top_r[1] * u2)
+        x1_bot = int(p_bot_l[0] * (1 - u1) + p_bot_r[0] * u1)
+        y1_bot = int(p_bot_l[1] * (1 - u1) + p_bot_r[1] * u1)
+        x2_bot = int(p_bot_l[0] * (1 - u2) + p_bot_r[0] * u2)
+        y2_bot = int(p_bot_l[1] * (1 - u2) + p_bot_r[1] * u2)
+        pts = np.array([(x1_top, y1_top), (x2_top, y2_top),
+                        (x2_bot, y2_bot), (x1_bot, y1_bot)], dtype=np.int32)
+        cv2.fillPoly(img, [pts], (255, 255, 255))
+
+    # ---- Floating distance label above the band ----
+    if dist_remaining_m > 0.5:
+        label_y = max(vp_y + 10, obs_y - band_height - 8)
+        label_x = vp_x + obs_x_offset
+        label = f"{dist_remaining_m:.1f}M"
+        scale = 0.45 + (1 - t_curve) * 0.5
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, scale, 2)
+        bg = img.copy()
+        cv2.rectangle(bg, (label_x - tw // 2 - 8, label_y - th - 6),
+                      (label_x + tw // 2 + 8, label_y + 6),
+                      (10, 14, 24), -1)
+        cv2.rectangle(bg, (label_x - tw // 2 - 8, label_y - th - 6),
+                      (label_x + tw // 2 + 8, label_y + 6),
+                      base_red, 2)
+        cv2.addWeighted(bg, 0.8, img, 0.2, 0, img)
+        cv2.putText(img, label, (label_x - tw // 2, label_y),
+                    cv2.FONT_HERSHEY_SIMPLEX, scale, (60, 80, 255), 2, cv2.LINE_AA)
+
+
+def draw_outcome_badge(img, outcome, width, height, time_elapsed):
+    """Center-screen verdict shown after the car stops in a scenario with obstacle."""
+    if outcome not in ("SAFE", "COLLISION"):
+        return
+
+    pulse = (math.sin(time_elapsed * 4) + 1) / 2
+    if outcome == "SAFE":
+        title = "SAFE STOP"
+        sub = "OBSTACLE AVOIDED"
+        col = (80, 230, 120)
+    else:
+        title = "COLLISION"
+        sub = "STOPPING DISTANCE EXCEEDED"
+        col = (40, 70, 255)
+
+    cx, cy = width // 2, int(height * 0.32)
+    bw, bh = 360, 100
+
+    overlay = img.copy()
+    cv2.rectangle(overlay, (cx - bw // 2, cy - bh // 2), (cx + bw // 2, cy + bh // 2),
+                  (10, 14, 22), -1)
+    cv2.rectangle(overlay, (cx - bw // 2, cy - bh // 2), (cx + bw // 2, cy + bh // 2),
+                  col, int(2 + pulse * 2))
+    cv2.addWeighted(overlay, 0.9, img, 0.1, 0, img)
+
+    (tw, th), _ = cv2.getTextSize(title, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)
+    cv2.putText(img, title, (cx - tw // 2, cy + 6),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.2, col, 3, cv2.LINE_AA)
+    (tw, _), _ = cv2.getTextSize(sub, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+    cv2.putText(img, sub, (cx - tw // 2, cy + 32),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 210, 220), 1, cv2.LINE_AA)
 
 
 # ============================================================
@@ -357,9 +492,10 @@ def draw_freeze_indicator(img, freeze_intensity, time_elapsed, width, height):
 
 def run_ar_sim():
     SCENARIOS = {
-        "1": {"name": "SUNNY",        "file": "dreamloop_sunny.avi",    "mu": 0.80},
-        "2": {"name": "WAYMO / RAIN", "file": "dreamloop_waymo.avi",    "mu": 0.40},
-        "3": {"name": "BLIZZARD",     "file": "dreamloop_blizzard.avi", "mu": 0.15}
+        "1": {"name": "SUNNY",        "file": "dreamloop_sunny.avi",    "mu": 0.80, "obstacle_m": None},
+        "2": {"name": "WAYMO / RAIN", "file": "dreamloop_waymo.avi",    "mu": 0.40, "obstacle_m": None},
+        "3": {"name": "BLIZZARD",     "file": "dreamloop_blizzard.avi", "mu": 0.15, "obstacle_m": None},
+        "4": {"name": "URBAN STORM",  "file": "blizzard_5s.mp4",        "mu": 0.50, "obstacle_m": 28.0},
     }
 
     current_mode = "1"
@@ -386,6 +522,7 @@ def run_ar_sim():
             "time_elapsed": 0.0,
             "impact_flash": 0.0,
             "smoke": [],
+            "outcome": "PENDING",   # PENDING / SAFE / COLLISION (only meaningful when obstacle_m is set)
         }
 
     state = reset_state()
@@ -394,12 +531,13 @@ def run_ar_sim():
         print(f"ERROR: Could not open {SCENARIOS[current_mode]['file']}")
         return
 
-    print("=" * 56)
-    print("  DREAMLOOP V9 — PLAYER CAR + SELECTIVE BULLET-TIME")
-    print("  > Mode 1 (Sunny):    Brake = video freezes")
-    print("  > Mode 2 (Rain):     Brake = video keeps playing")
-    print("  > Mode 3 (Blizzard): Brake = video keeps playing")
-    print("=" * 56)
+    print("=" * 60)
+    print("  DREAMLOOP V10 — 4 SCENARIOS + OBSTACLE AVOIDANCE")
+    print("  > [1] Sunny       Brake = video freezes for analysis")
+    print("  > [2] Rain        Brake = video keeps rolling")
+    print("  > [3] Blizzard    Brake = video keeps rolling")
+    print("  > [4] Urban Storm Brake = obstacle at 28m, can you stop?")
+    print("=" * 60)
 
     raw_frame = None
     ACCENT = (0, 220, 255)
@@ -466,12 +604,37 @@ def run_ar_sim():
                 state["phase"] = "STOPPED"
                 if state["is_skidding"] and state["impact_flash"] < 0.1:
                     state["impact_flash"] = 1.0
+                # Compute outcome if this scenario has an obstacle
+                obstacle_m = SCENARIOS[current_mode]["obstacle_m"]
+                if obstacle_m is not None and state["outcome"] == "PENDING":
+                    if state["distance_m"] < obstacle_m:
+                        state["outcome"] = "SAFE"
+                    else:
+                        state["outcome"] = "COLLISION"
+
+        # Mid-flight collision detection (the car keeps going and hits the line)
+        obstacle_m = SCENARIOS[current_mode]["obstacle_m"]
+        if (obstacle_m is not None and state["outcome"] == "PENDING"
+                and state["distance_m"] >= obstacle_m and state["phase"] != "CRUISING"):
+            state["outcome"] = "COLLISION"
+            state["impact_flash"] = 1.0
+            state["v"] = 0
+            state["phase"] = "STOPPED"
 
         state["distance_m"] += state["v"] * DT
         state["impact_flash"] = max(0.0, state["impact_flash"] - DT * 2)
 
         # ============ AR LANE LINES (world space) ============
         draw_ar_lane_lines(frame, state["lateral_drift"], state["skid_angle"], WIDTH, HEIGHT)
+
+        # ============ AR DANGER ZONE (obstacle marker on road plane) ============
+        obstacle_m = SCENARIOS[current_mode]["obstacle_m"]
+        if obstacle_m is not None:
+            dist_remaining = max(0.0, obstacle_m - state["distance_m"])
+            draw_ar_danger_zone(frame, dist_remaining, obstacle_m,
+                                state["lateral_drift"], state["skid_angle"],
+                                state["time_elapsed"], state["outcome"],
+                                WIDTH, HEIGHT)
 
         # ============ VIDEO WARP / SHAKE ============
         if state["phase"] != "CRUISING":
@@ -536,8 +699,8 @@ def run_ar_sim():
                         smoke_particles=state["smoke"])
 
         # ============ HUD (narrowed) ============
-        hud_x, hud_y = 40, HEIGHT - 200
-        hud_w, hud_h = 4000, 200
+        hud_x, hud_y = 20, HEIGHT - 200
+        hud_w, hud_h = 380, 180
 
         overlay = frame.copy()
         cv2.rectangle(overlay, (hud_x, hud_y), (hud_x + hud_w, hud_y + hud_h), (12, 18, 28), -1)
@@ -584,10 +747,26 @@ def run_ar_sim():
                     cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 255), 2, cv2.LINE_AA)
 
         mu_col = (100, 255, 100) if mu > 0.6 else ((50, 180, 255) if mu > 0.3 else (50, 50, 255))
-        cv2.putText(frame, "GRIP (mu)", (tx + 120, ty + 46),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.38, (130, 135, 145), 1, cv2.LINE_AA)
-        cv2.putText(frame, f"{mu:.2f}", (tx + 120, ty + 64),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, mu_col, 2, cv2.LINE_AA)
+        obstacle_m_hud = SCENARIOS[current_mode]["obstacle_m"]
+        if obstacle_m_hud is not None:
+            # Replace GRIP slot with TO OBSTACLE for obstacle scenarios
+            dist_rem = max(0.0, obstacle_m_hud - state["distance_m"])
+            if state["outcome"] == "COLLISION":
+                obs_col, obs_txt = (40, 70, 255), "IMPACT"
+            elif state["outcome"] == "SAFE":
+                obs_col, obs_txt = (80, 230, 120), "CLEAR"
+            else:
+                obs_col = (40, 70, 255) if dist_rem < 8 else ((50, 180, 255) if dist_rem < 18 else (100, 255, 120))
+                obs_txt = f"{dist_rem:.1f} M"
+            cv2.putText(frame, "TO OBSTACLE", (tx + 120, ty + 46),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.38, (130, 135, 145), 1, cv2.LINE_AA)
+            cv2.putText(frame, obs_txt, (tx + 120, ty + 64),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.52, obs_col, 2, cv2.LINE_AA)
+        else:
+            cv2.putText(frame, "GRIP (mu)", (tx + 120, ty + 46),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.38, (130, 135, 145), 1, cv2.LINE_AA)
+            cv2.putText(frame, f"{mu:.2f}", (tx + 120, ty + 64),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.52, mu_col, 2, cv2.LINE_AA)
 
         # Slip bar
         bar_x = hud_x + 16
@@ -612,12 +791,15 @@ def run_ar_sim():
         cv2.rectangle(frame, (0, 0), (WIDTH, 28), (8, 12, 18), -1)
         cv2.line(frame, (0, 28), (WIDTH, 28), ACCENT, 1)
         cv2.putText(frame,
-                    "[1]SUNNY  [2]RAIN  [3]BLIZZARD   |   [W/S]SPEED   |   [SPACE]EMERGENCY BRAKE   |   [R]RESET  [Q]QUIT",
+                    "[1]SUNNY [2]RAIN [3]BLIZZARD [4]URBAN  |  [W/S]SPEED  |  [SPACE]BRAKE  |  [R]RESET [Q]QUIT",
                     (10, 19), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (190, 220, 240), 1, cv2.LINE_AA)
         speed_label = f"SET: {initial_speed_kmh:.0f} KM/H"
         (tw, _), _ = cv2.getTextSize(speed_label, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
         cv2.putText(frame, speed_label, (WIDTH - tw - 12, 19),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 220, 100), 1, cv2.LINE_AA)
+
+        # ============ OUTCOME BADGE (only for scenarios with obstacle) ============
+        draw_outcome_badge(frame, state["outcome"], WIDTH, HEIGHT, state["time_elapsed"])
 
         cv2.imshow("DreamLoop AR Environment", frame)
 
@@ -625,7 +807,7 @@ def run_ar_sim():
         key = cv2.waitKey(max(1, int(DT * 1000))) & 0xFF
         if key == ord('q'):
             break
-        elif key in [ord('1'), ord('2'), ord('3')]:
+        elif key in [ord('1'), ord('2'), ord('3'), ord('4')]:
             if str(chr(key)) != current_mode:
                 current_mode = str(chr(key))
                 cap.release()
